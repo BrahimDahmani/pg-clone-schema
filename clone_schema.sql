@@ -62,7 +62,7 @@ DECLARE
     cnt int;
 BEGIN
   DROP TYPE IF EXISTS public.cloneparms CASCADE;
-  CREATE TYPE public.cloneparms AS ENUM ('DATA', 'NODATA','DDLONLY','NOOWNER','NOACL','VERBOSE','DEBUG','FILECOPY');
+  CREATE TYPE public.cloneparms AS ENUM ('DATA', 'NODATA','DDLONLY','NOOWNER','NOACL','VERBOSE','DEBUG','FILECOPY', 'OVERRIDE');
   -- END IF;
 end first_block $$;
 
@@ -734,6 +734,7 @@ DECLARE
   bDDLOnly         boolean := False;
   bVerbose         boolean := False;
   bDebug           boolean := False;
+  bOverride        boolean := False;
   bNoACL           boolean := False;
   bNoOwner         boolean := False;
   arglen           integer;
@@ -762,7 +763,8 @@ BEGIN
 
   IF 'DEBUG'   = ANY ($3) THEN bDebug = True; END IF;
   IF 'VERBOSE' = ANY ($3) THEN bVerbose = True; END IF;
-  
+  IF 'OVERRIDE' = ANY ($3) THEN bOverride = True; END IF;
+
   -- IF bVerbose THEN RAISE NOTICE 'START: %',clock_timestamp() - t; END IF;
   
   arglen := array_length($3, 1);
@@ -843,10 +845,13 @@ BEGIN
   FROM pg_namespace
   WHERE nspname = quote_ident(dest_schema);
 
-  IF FOUND
-    THEN
-    RAISE NOTICE ' dest schema % already exists!', dest_schema;
-    RETURN ;
+  IF FOUND THEN
+    IF bOverride THEN
+      EXECUTE 'DROP SCHEMA IF EXISTS ' || quote_ident(dest_schema) || ' CASCADE';
+    ELSE
+      RAISE NOTICE ' dest schema % already exists!', dest_schema;
+      RETURN ;
+    END IF;
   END IF;
   IF bDDLOnly and bData THEN
     RAISE WARNING 'You cannot specify to clone data and generate ddl at the same time.';
@@ -930,6 +935,9 @@ BEGIN
     END IF;
     RAISE NOTICE 'SET search_path=%;', quote_ident(dest_schema);
   ELSE
+    IF bOverride THEN
+      EXECUTE 'DROP SCHEMA IF EXISTS ' || quote_ident(dest_schema) || ' CASCADE';
+    END IF;
     -- issue#95
     IF bNoOwner THEN
         EXECUTE 'CREATE SCHEMA ' || quote_ident(dest_schema) ;
